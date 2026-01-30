@@ -44,6 +44,7 @@ import {
   BedDouble,
   CircleCheck,
   TriangleAlert,
+  Lock,
 } from "lucide-react"
 
 export default function BoardingHouseDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -104,8 +105,11 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
   const totalCapacity = rooms.reduce((sum, room) => sum + room.capacity, 0)
   const totalOccupied = rooms.reduce((sum, room) => sum + (room.occupants?.length || 0), 0)
 
+  // Check if boarding house is approved (active and has valid permit)
+  const isApproved = boardingHouse.isActive && boardingHouse.permitStatus === "valid"
+
   const handleAddRoom = async () => {
-    if (!newRoomName || !newRoomCapacity) return
+    if (!newRoomName || !newRoomCapacity || !isApproved) return
 
     const roomData = {
       boardingHouseId: id,
@@ -139,7 +143,7 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
   }
 
   const handleAddOccupant = async () => {
-    if (!selectedRoomForOccupant || !newOccupantName || !newOccupantContact || !newOccupantMoveIn) return
+    if (!selectedRoomForOccupant || !newOccupantName || !newOccupantContact || !newOccupantMoveIn || !isApproved) return
 
     const occupantData = {
       roomId: selectedRoomForOccupant,
@@ -312,6 +316,15 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
               </span>
             </div>
           )}
+
+          {!isApproved && (
+            <div className="flex items-center gap-2 p-3 mt-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm">
+              <Lock className="w-4 h-4 text-destructive" />
+              <span className="text-destructive">
+                Room and occupant management is locked. Your boarding house must be active with a valid permit to add rooms and occupants.
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -320,13 +333,21 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Rooms & Occupancy</CardTitle>
-              <CardDescription>Manage rooms and track occupants</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                Rooms & Occupancy
+                {!isApproved && <Lock className="w-4 h-4 text-destructive" />}
+              </CardTitle>
+              <CardDescription>
+                {isApproved 
+                  ? "Manage rooms and track occupants" 
+                  : "Locked - Boarding house must be approved to manage rooms"}
+              </CardDescription>
             </div>
             <Dialog open={isAddRoomOpen} onOpenChange={setIsAddRoomOpen}>
               <DialogTrigger asChild>
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
+                <Button disabled={!isApproved}>
+                  {!isApproved && <Lock className="w-4 h-4 mr-2" />}
+                  {isApproved && <Plus className="w-4 h-4 mr-2" />}
                   Add Room
                 </Button>
               </DialogTrigger>
@@ -376,9 +397,14 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
             <div className="text-center py-8 bg-muted/50 rounded-lg">
               <BedDouble className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium text-foreground mb-2">No rooms yet</h3>
-              <p className="text-muted-foreground mb-4">Add your first room to start tracking occupancy</p>
-              <Button onClick={() => setIsAddRoomOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
+              <p className="text-muted-foreground mb-4">
+                {isApproved 
+                  ? "Add your first room to start tracking occupancy"
+                  : "Your boarding house must be approved before adding rooms"}
+              </p>
+              <Button onClick={() => setIsAddRoomOpen(true)} disabled={!isApproved}>
+                {!isApproved && <Lock className="w-4 h-4 mr-2" />}
+                {isApproved && <Plus className="w-4 h-4 mr-2" />}
                 Add Room
               </Button>
             </div>
@@ -412,16 +438,17 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
                         </Badge>
                         <Button
                           onClick={() => openAddOccupant(room.id)}
-                          disabled={isFull}
+                          disabled={isFull || !isApproved}
                           className="text-sm"
                           size="sm"
+                          title={!isApproved ? "Boarding house must be approved to add occupants" : ""}
                         >
-                          <UserPlus className="w-4 h-4 mr-1" />
+                          {!isApproved ? <Lock className="w-4 h-4 mr-1" /> : <UserPlus className="w-4 h-4 mr-1" />}
                           <span className="hidden sm:inline">Add Occupant</span>
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="text-destructive">
+                            <Button variant="ghost" size="sm" className="text-destructive" disabled={!isApproved}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -479,7 +506,7 @@ export default function BoardingHouseDetail({ params }: { params: Promise<{ id: 
                               </div>
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="text-destructive h-8 w-8 p-0">
+                                  <Button variant="ghost" size="sm" className="text-destructive h-8 w-8 p-0" disabled={!isApproved}>
                                     <UserMinus className="w-4 h-4" />
                                   </Button>
                                 </AlertDialogTrigger>

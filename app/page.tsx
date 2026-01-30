@@ -1,8 +1,19 @@
 "use client"
 
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { Building2, MapPin, Shield, BarChart3, Users, ClipboardCheck, ArrowRight, Menu, X } from "lucide-react"
 import { useState } from "react"
+
+// Dynamically import the student map view to avoid SSR issues with Leaflet
+const StudentMapView = dynamic(() => import("@/components/student-map-view"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[500px] w-full bg-muted flex items-center justify-center rounded-xl">
+      <div className="text-muted-foreground">Loading map...</div>
+    </div>
+  ),
+})
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -23,6 +34,9 @@ export default function LandingPage() {
           <div className="hidden items-center gap-8 md:flex">
             <a href="#features" className="text-sm font-medium hover:text-primary transition">
               Features
+            </a>
+            <a href="#find-boarding" className="text-sm font-medium hover:text-primary transition">
+              Find Boarding
             </a>
             <a href="#how-it-works" className="text-sm font-medium hover:text-primary transition">
               How It Works
@@ -54,6 +68,9 @@ export default function LandingPage() {
             <div className="flex flex-col gap-4">
               <a href="#features" className="text-sm font-medium hover:text-primary">
                 Features
+              </a>
+              <a href="#find-boarding" className="text-sm font-medium hover:text-primary">
+                Find Boarding
               </a>
               <a href="#how-it-works" className="text-sm font-medium hover:text-primary">
                 How It Works
@@ -193,6 +210,23 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Interactive Map Section for Students */}
+      <section id="find-boarding" className="border-t border-border px-4 py-16 sm:py-20 lg:px-8 bg-muted/40">
+        <div className="mx-auto max-w-7xl">
+          <div className="text-center mb-8 sm:mb-12">
+            <p className="mb-2 inline-block rounded-full bg-primary/15 px-3 py-1 text-xs sm:text-sm font-medium text-primary">
+              Find Your Stay
+            </p>
+            <h2 className="text-pretty text-2xl sm:text-3xl lg:text-4xl font-bold">Explore Boarding Houses</h2>
+            <p className="mt-3 sm:mt-4 text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
+              Browse available boarding houses across Midsalip. View locations, check availability, and find the perfect place to stay.
+            </p>
+          </div>
+
+          <StudentMapView />
         </div>
       </section>
 

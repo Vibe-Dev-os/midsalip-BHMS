@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { createBoardingHouse, createRoom } from "@/lib/data-service"
@@ -12,9 +12,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { MapPicker } from "@/components/map-picker"
-import { ArrowLeft, Building, CloudUpload, CircleCheck, LoaderCircle, DoorOpen, AlertCircle } from "lucide-react"
+import { ArrowLeft, Building, CloudUpload, CircleCheck, LoaderCircle, DoorOpen, AlertCircle, CalendarIcon } from "lucide-react"
 import Link from "next/link"
+import { toast } from "sonner"
+import { format } from "date-fns"
+import { cn } from "@/lib/utils"
 
 import { MIDSALIP_BARANGAYS } from "@/lib/constants"
 
@@ -26,6 +31,7 @@ export default function RegisterBoardingHouse() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [touched, setTouched] = useState(false) // Track if form was submitted
 
   const [formData, setFormData] = useState({
     name: "",
@@ -69,13 +75,108 @@ export default function RegisterBoardingHouse() {
     setFormData((prev) => ({ ...prev, genderAccommodation: value }))
   }
 
+  // Validation errors
+  const getFieldErrors = () => {
+    const errors: Record<string, string> = {}
+    
+    if (!formData.name.trim()) errors.name = "Boarding house name is required"
+    if (!formData.barangay) errors.barangay = "Please select a barangay"
+    if (!formData.street.trim()) errors.street = "Street name is required"
+    if (!formData.contactNumber.trim()) errors.contactNumber = "Contact number is required"
+    if (!formData.totalRooms) errors.totalRooms = "Total rooms is required"
+    if (!formData.bedsPerRoom) errors.bedsPerRoom = "Beds per room is required"
+    if (!formData.priceMin) errors.priceMin = "Minimum price is required"
+    if (!formData.priceMax) errors.priceMax = "Maximum price is required"
+    if (!formData.genderAccommodation) errors.genderAccommodation = "Please select gender accommodation"
+    if (!formData.permitNumber.trim()) errors.permitNumber = "Business permit number is required"
+    if (!formData.permitIssueDate) {
+      errors.permitIssueDate = "Permit issue date is required"
+    }
+    if (!formData.permitExpiryDate) {
+      errors.permitExpiryDate = "Permit expiry date is required"
+    } else {
+      // Validate expiry date is in the future
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const [expYear, expMonth, expDay] = formData.permitExpiryDate.split('-').map(Number)
+      const expiryDate = new Date(expYear, expMonth - 1, expDay)
+      
+      if (expiryDate <= today) {
+        errors.permitExpiryDate = "Expiry date must be after today"
+      } else if (formData.permitIssueDate) {
+        // Check that expiry is at least 1 year from issue date
+        const [issYear, issMonth, issDay] = formData.permitIssueDate.split('-').map(Number)
+        const issueDate = new Date(issYear, issMonth - 1, issDay)
+        const minExpiryDate = new Date(issYear + 1, issMonth - 1, issDay) // 1 year from issue
+        
+        if (expiryDate < minExpiryDate) {
+          errors.permitExpiryDate = "Expiry date must be at least 1 year from issue date"
+        }
+      }
+    }
+    if (!formData.latitude || !formData.longitude) errors.location = "Please pin the location on the map"
+    
+    return errors
+  }
+
+  const fieldErrors = touched ? getFieldErrors() : {}
+  const hasErrors = Object.keys(fieldErrors).length > 0
+
+  // Function to scroll to the first error field
+  const scrollToFirstError = (errors: Record<string, string>) => {
+    const errorFieldIds: Record<string, string> = {
+      name: "name",
+      barangay: "barangay",
+      street: "street",
+      contactNumber: "contactNumber",
+      totalRooms: "totalRooms",
+      bedsPerRoom: "bedsPerRoom",
+      priceMin: "priceMin",
+      priceMax: "priceMax",
+      genderAccommodation: "genderAccommodation",
+      permitNumber: "permitNumber",
+      permitIssueDate: "permitIssueDate",
+      permitExpiryDate: "permitExpiryDate",
+      location: "map-section",
+    }
+
+    const firstErrorKey = Object.keys(errors)[0]
+    if (firstErrorKey && errorFieldIds[firstErrorKey]) {
+      const element = document.getElementById(errorFieldIds[firstErrorKey])
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" })
+        // Focus the element if it's an input
+        if (element.tagName === "INPUT") {
+          setTimeout(() => element.focus(), 500)
+        }
+      }
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
+    setTouched(true) // Mark form as touched to show errors
     setError(null)
+
+    // Check for validation errors
+    const errors = getFieldErrors()
+    if (Object.keys(errors).length > 0) {
+      setError("Please fill in all required fields")
+      toast.error("Validation Error", {
+        description: "Please fill in all required fields before submitting.",
+      })
+      // Scroll to first error field
+      scrollToFirstError(errors)
+      return
+    }
+
+    setIsSubmitting(true)
 
     if (!user || !user.id) {
       setError("User not authenticated")
+      toast.error("Authentication Error", {
+        description: "You must be logged in to register a boarding house.",
+      })
       setIsSubmitting(false)
       return
     }
@@ -88,6 +189,9 @@ export default function RegisterBoardingHouse() {
     
     if (expiryDate <= today) {
       setError("Permit expiry date must be in the future")
+      toast.error("Invalid Expiry Date", {
+        description: "The permit expiry date must be after today's date.",
+      })
       setIsSubmitting(false)
       return
     }
@@ -145,6 +249,9 @@ export default function RegisterBoardingHouse() {
     } catch (error) {
       console.error('Error creating boarding house:', error)
       setError('Failed to register boarding house. Please try again.')
+      toast.error("Registration Failed", {
+        description: "Failed to register boarding house. Please try again.",
+      })
       setIsSubmitting(false)
     }
   }
@@ -229,15 +336,18 @@ export default function RegisterBoardingHouse() {
                 onChange={handleInputChange}
                 placeholder="e.g., Casa Esperanza Boarding House"
                 required
-                className="bg-background"
+                className={`bg-background ${fieldErrors.name ? "border-destructive" : ""}`}
               />
+              {fieldErrors.name && (
+                <p className="text-sm text-destructive">{fieldErrors.name}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="barangay">Barangay *</Label>
                 <Select value={formData.barangay} onValueChange={handleSelectChange}>
-                  <SelectTrigger className="bg-background">
+                  <SelectTrigger className={`bg-background ${fieldErrors.barangay ? "border-destructive" : ""}`}>
                     <SelectValue placeholder="Select barangay" />
                   </SelectTrigger>
                   <SelectContent>
@@ -248,6 +358,9 @@ export default function RegisterBoardingHouse() {
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.barangay && (
+                  <p className="text-sm text-destructive">{fieldErrors.barangay}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -259,8 +372,11 @@ export default function RegisterBoardingHouse() {
                   onChange={handleInputChange}
                   placeholder="09171234567"
                   required
-                  className="bg-background"
+                  className={`bg-background ${fieldErrors.contactNumber ? "border-destructive" : ""}`}
                 />
+                {fieldErrors.contactNumber && (
+                  <p className="text-sm text-destructive">{fieldErrors.contactNumber}</p>
+                )}
               </div>
             </div>
 
@@ -273,8 +389,11 @@ export default function RegisterBoardingHouse() {
                 onChange={handleInputChange}
                 placeholder="e.g., National Highway"
                 required
-                className="bg-background"
+                className={`bg-background ${fieldErrors.street ? "border-destructive" : ""}`}
               />
+              {fieldErrors.street && (
+                <p className="text-sm text-destructive">{fieldErrors.street}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -327,8 +446,11 @@ export default function RegisterBoardingHouse() {
                   onChange={handleInputChange}
                   placeholder="e.g., 10"
                   required
-                  className="bg-background"
+                  className={`bg-background ${fieldErrors.totalRooms ? "border-destructive" : ""}`}
                 />
+                {fieldErrors.totalRooms && (
+                  <p className="text-sm text-destructive">{fieldErrors.totalRooms}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -342,8 +464,11 @@ export default function RegisterBoardingHouse() {
                   onChange={handleInputChange}
                   placeholder="e.g., 4"
                   required
-                  className="bg-background"
+                  className={`bg-background ${fieldErrors.bedsPerRoom ? "border-destructive" : ""}`}
                 />
+                {fieldErrors.bedsPerRoom && (
+                  <p className="text-sm text-destructive">{fieldErrors.bedsPerRoom}</p>
+                )}
               </div>
             </div>
 
@@ -363,8 +488,11 @@ export default function RegisterBoardingHouse() {
                     onChange={handleInputChange}
                     placeholder="e.g., 2000"
                     required
-                    className="bg-background"
+                    className={`bg-background ${fieldErrors.priceMin ? "border-destructive" : ""}`}
                   />
+                  {fieldErrors.priceMin && (
+                    <p className="text-sm text-destructive">{fieldErrors.priceMin}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="priceMax" className="text-sm text-muted-foreground">
@@ -379,8 +507,11 @@ export default function RegisterBoardingHouse() {
                     onChange={handleInputChange}
                     placeholder="e.g., 5000"
                     required
-                    className="bg-background"
+                    className={`bg-background ${fieldErrors.priceMax ? "border-destructive" : ""}`}
                   />
+                  {fieldErrors.priceMax && (
+                    <p className="text-sm text-destructive">{fieldErrors.priceMax}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -388,7 +519,7 @@ export default function RegisterBoardingHouse() {
             <div className="space-y-2">
               <Label htmlFor="genderAccommodation">Gender Accommodation *</Label>
               <Select value={formData.genderAccommodation} onValueChange={handleGenderChange}>
-                <SelectTrigger className="bg-background">
+                <SelectTrigger className={`bg-background ${fieldErrors.genderAccommodation ? "border-destructive" : ""}`}>
                   <SelectValue placeholder="Select accommodation type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -397,6 +528,9 @@ export default function RegisterBoardingHouse() {
                   <SelectItem value="both">Both (Boys and Girls)</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.genderAccommodation && (
+                <p className="text-sm text-destructive">{fieldErrors.genderAccommodation}</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -408,6 +542,14 @@ export default function RegisterBoardingHouse() {
             <CardDescription>Provide your valid business permit information</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Guide for users */}
+            <Alert className="bg-primary/5 border-primary/20">
+              <AlertCircle className="h-4 w-4 text-primary" />
+              <AlertDescription className="text-sm">
+                <strong>Important:</strong> Business permits must be valid for at least 1 year. Please ensure your permit expiry date is at least 1 year from the issue date.
+              </AlertDescription>
+            </Alert>
+
             <div className="space-y-2">
               <Label htmlFor="permitNumber">Business Permit Number *</Label>
               <Input
@@ -417,38 +559,99 @@ export default function RegisterBoardingHouse() {
                 onChange={handleInputChange}
                 placeholder="e.g., BP-2024-001"
                 required
-                className="bg-background"
+                className={`bg-background ${fieldErrors.permitNumber ? "border-destructive" : ""}`}
               />
+              {fieldErrors.permitNumber && (
+                <p className="text-sm text-destructive">{fieldErrors.permitNumber}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="permitIssueDate">Issue Date *</Label>
-                <Input
-                  id="permitIssueDate"
-                  name="permitIssueDate"
-                  type="date"
-                  value={formData.permitIssueDate}
-                  onChange={handleInputChange}
-                  max={new Date().toISOString().split('T')[0]}
-                  required
-                  className="bg-background"
-                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="permitIssueDate"
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal bg-background",
+                        !formData.permitIssueDate && "text-muted-foreground",
+                        fieldErrors.permitIssueDate && "border-destructive"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.permitIssueDate ? (
+                        format(new Date(formData.permitIssueDate + "T00:00:00"), "PPP")
+                      ) : (
+                        <span>Select issue date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formData.permitIssueDate ? new Date(formData.permitIssueDate + "T00:00:00") : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          const formatted = format(date, "yyyy-MM-dd")
+                          setFormData((prev) => ({ ...prev, permitIssueDate: formatted }))
+                        }
+                      }}
+                      disabled={(date) => date > new Date()}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                {fieldErrors.permitIssueDate && (
+                  <p className="text-sm text-destructive">{fieldErrors.permitIssueDate}</p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="permitExpiryDate">Expiry Date *</Label>
-                <Input
-                  id="permitExpiryDate"
-                  name="permitExpiryDate"
-                  type="date"
-                  value={formData.permitExpiryDate}
-                  onChange={handleInputChange}
-                  min={formData.permitIssueDate || new Date().toISOString().split('T')[0]}
-                  required
-                  className="bg-background"
-                />
-                <p className="text-xs text-muted-foreground">Must be a future date</p>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="permitExpiryDate"
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal bg-background",
+                        !formData.permitExpiryDate && "text-muted-foreground",
+                        fieldErrors.permitExpiryDate && "border-destructive"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.permitExpiryDate ? (
+                        format(new Date(formData.permitExpiryDate + "T00:00:00"), "PPP")
+                      ) : (
+                        <span>Select expiry date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formData.permitExpiryDate ? new Date(formData.permitExpiryDate + "T00:00:00") : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          const formatted = format(date, "yyyy-MM-dd")
+                          setFormData((prev) => ({ ...prev, permitExpiryDate: formatted }))
+                        }
+                      }}
+                      disabled={(date) => {
+                        const today = new Date()
+                        today.setHours(0, 0, 0, 0)
+                        return date <= today
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                {fieldErrors.permitExpiryDate && (
+                  <p className="text-sm text-destructive">{fieldErrors.permitExpiryDate}</p>
+                )}
+                <p className="text-xs text-muted-foreground">Must be a future date, at least 1 year from issue date</p>
               </div>
             </div>
 
@@ -479,7 +682,7 @@ export default function RegisterBoardingHouse() {
         </Card>
 
         {/* Location */}
-        <Card>
+        <Card id="map-section">
           <CardHeader>
             <CardTitle>Location on Map</CardTitle>
             <CardDescription>Pin the exact location of your boarding house on the map</CardDescription>
@@ -492,7 +695,14 @@ export default function RegisterBoardingHouse() {
               selectedBarangay={formData.barangay}
             />
 
-            {!formData.latitude && !formData.longitude && (
+            {fieldErrors.location && (
+              <Alert className="mt-4 bg-destructive/10 border-destructive/50" variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{fieldErrors.location}</AlertDescription>
+              </Alert>
+            )}
+
+            {!fieldErrors.location && !formData.latitude && !formData.longitude && (
               <Alert className="mt-4 bg-warning/10 border-warning/50">
                 <AlertDescription className="text-warning-foreground">
                   Location pinning is required. Your boarding house must have a pinned location to be activated.
@@ -507,7 +717,7 @@ export default function RegisterBoardingHouse() {
           <Button type="button" variant="outline" asChild>
             <Link href="/owner">Cancel</Link>
           </Button>
-          <Button type="submit" disabled={!isFormValid || isSubmitting}>
+          <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
