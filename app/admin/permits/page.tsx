@@ -15,6 +15,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { getAllBoardingHouses, getPermitStatusColor, updateBoardingHouse, createNotification } from "@/lib/data-service"
 import type { BoardingHouse, PermitStatus } from "@/lib/types"
 import {
@@ -27,10 +38,10 @@ import {
   CalendarDays,
   MapPinned,
   Eye,
-  ToggleLeft,
-  ToggleRight,
+  Ban,
 } from "lucide-react"
 import { BARANGAYS_WITH_ALL } from "@/lib/constants"
+import { toast } from "sonner"
 
 const BARANGAYS = BARANGAYS_WITH_ALL
 
@@ -73,23 +84,6 @@ export default function PermitVerificationPage() {
   const expiredBH = filteredBH.filter((bh) => bh.permitStatus === "expired")
   const nearExpiryBH = filteredBH.filter((bh) => bh.permitStatus === "near-expiry")
   const validBH = filteredBH.filter((bh) => bh.permitStatus === "valid")
-
-  const handleToggleActive = async (bhId: string) => {
-    const bh = boardingHouses.find(b => b.id === bhId)
-    if (!bh) return
-
-    const newActiveState = !bh.isActive
-    
-    // Update in database
-    const success = await updateBoardingHouse(bhId, { isActive: newActiveState })
-    
-    if (success) {
-      setBoardingHouses((prev) => prev.map((b) => (b.id === bhId ? { ...b, isActive: newActiveState } : b)))
-      if (selectedBH?.id === bhId) {
-        setSelectedBH((prev) => (prev ? { ...prev, isActive: newActiveState } : null))
-      }
-    }
-  }
 
   const handleVerifyPermit = async (bhId: string) => {
     const bh = boardingHouses.find(b => b.id === bhId)
@@ -150,6 +144,21 @@ export default function PermitVerificationPage() {
         relatedId: bhId,
       })
 
+      // Show toast notification
+      if (shouldActivate) {
+        toast.success("Permit Verified & Activated", {
+          description: `${bh.name} has been approved and is now active.`,
+        })
+      } else if (newPermitStatus === "expired") {
+        toast.warning("Permit Expired", {
+          description: `${bh.name} permit is expired. Owner has been notified.`,
+        })
+      } else {
+        toast.info("Permit Reviewed", {
+          description: `${bh.name} permit status updated to ${newPermitStatus}.`,
+        })
+      }
+
       setBoardingHouses((prev) =>
         prev.map((b) =>
           b.id === bhId
@@ -171,6 +180,52 @@ export default function PermitVerificationPage() {
     }
   }
 
+  const handleRejectPermit = async (bhId: string) => {
+    const bh = boardingHouses.find(b => b.id === bhId)
+    if (!bh) return
+
+    // Update in database - set as expired and inactive
+    const success = await updateBoardingHouse(bhId, { 
+      permitStatus: "expired" as const, 
+      isActive: false 
+    })
+    
+    if (success) {
+      // Send notification to owner
+      await createNotification({
+        userId: bh.ownerId,
+        title: "Boarding House Registration Rejected",
+        message: `Your boarding house "${bh.name}" registration has been rejected. Please review your permit information and resubmit with valid documentation.`,
+        type: "warning",
+        relatedId: bhId,
+      })
+
+      // Show toast notification
+      toast.error("Permit Rejected", {
+        description: `${bh.name} has been rejected. Owner has been notified.`,
+      })
+
+      setBoardingHouses((prev) =>
+        prev.map((b) =>
+          b.id === bhId
+            ? { ...b, permitStatus: "expired" as PermitStatus, isActive: false }
+            : b,
+        ),
+      )
+      if (selectedBH?.id === bhId) {
+        setSelectedBH((prev) =>
+          prev
+            ? {
+                ...prev,
+                permitStatus: "expired" as PermitStatus,
+                isActive: false,
+              }
+            : null,
+        )
+      }
+    }
+  }
+
   const viewDetails = (bh: BoardingHouse) => {
     setSelectedBH(bh)
     setIsDetailOpen(true)
@@ -179,12 +234,12 @@ export default function PermitVerificationPage() {
   const PermitCard = ({
     bh,
     onVerify,
-    onToggle,
+    onReject,
     onViewDetails,
   }: {
     bh: BoardingHouse
     onVerify: (bhId: string) => void
-    onToggle: (bhId: string) => void
+    onReject: (bhId: string) => void
     onViewDetails: () => void
   }) => (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-muted/50 rounded-lg gap-4">
@@ -223,23 +278,38 @@ export default function PermitVerificationPage() {
           View
         </Button>
         {bh.permitStatus === "pending" && (
-          <Button size="sm" onClick={() => onVerify(bh.id)} className="bg-success hover:bg-success/90">
-            <CircleCheck className="w-5 h-5 mr-1" strokeWidth={2} />
-            Verify
-          </Button>
+          <>
+            <Button size="sm" onClick={() => onVerify(bh.id)} className="bg-success hover:bg-success/90">
+              <CircleCheck className="w-5 h-5 mr-1" strokeWidth={2} />
+              Verify
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="destructive">
+                  <Ban className="w-5 h-5 mr-1" strokeWidth={2} />
+                  Reject
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reject Permit?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to reject the permit for "{bh.name}"? The owner will be notified and will need to resubmit with valid documentation.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => onReject(bh.id)}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Reject
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onToggle(bh.id)}
-          className={bh.isActive ? "text-success" : "text-muted-foreground"}
-        >
-          {bh.isActive ? (
-            <ToggleRight className="w-6 h-6" strokeWidth={2} />
-          ) : (
-            <ToggleLeft className="w-6 h-6" strokeWidth={2} />
-          )}
-        </Button>
       </div>
     </div>
   )
@@ -373,7 +443,7 @@ export default function PermitVerificationPage() {
                 key={bh.id}
                 bh={bh}
                 onVerify={handleVerifyPermit}
-                onToggle={handleToggleActive}
+                onReject={handleRejectPermit}
                 onViewDetails={() => {
                   setSelectedBH(bh)
                   setIsDetailOpen(true)
@@ -404,7 +474,7 @@ export default function PermitVerificationPage() {
                     key={bh.id}
                     bh={bh}
                     onVerify={handleVerifyPermit}
-                    onToggle={handleToggleActive}
+                    onReject={handleRejectPermit}
                     onViewDetails={() => {
                       setSelectedBH(bh)
                       setIsDetailOpen(true)
@@ -437,7 +507,7 @@ export default function PermitVerificationPage() {
                     key={bh.id}
                     bh={bh}
                     onVerify={handleVerifyPermit}
-                    onToggle={handleToggleActive}
+                    onReject={handleRejectPermit}
                     onViewDetails={() => {
                       setSelectedBH(bh)
                       setIsDetailOpen(true)
@@ -470,7 +540,7 @@ export default function PermitVerificationPage() {
                     key={bh.id}
                     bh={bh}
                     onVerify={handleVerifyPermit}
-                    onToggle={handleToggleActive}
+                    onReject={handleRejectPermit}
                     onViewDetails={() => {
                       setSelectedBH(bh)
                       setIsDetailOpen(true)
@@ -521,17 +591,47 @@ export default function PermitVerificationPage() {
               </div>
             </div>
             <DialogFooter className="flex-col sm:flex-row gap-2">
-              {selectedBH.permitStatus !== "valid" && (
-                <Button
-                  onClick={() => {
-                    handleVerifyPermit(selectedBH.id)
-                    setIsDetailOpen(false)
-                  }}
-                  className="w-full sm:w-auto"
-                >
-                  <CircleCheck className="w-4 h-4 mr-2" strokeWidth={2} />
-                  Verify Permit
-                </Button>
+              {selectedBH.permitStatus === "pending" && (
+                <>
+                  <Button
+                    onClick={() => {
+                      handleVerifyPermit(selectedBH.id)
+                      setIsDetailOpen(false)
+                    }}
+                    className="w-full sm:w-auto bg-success hover:bg-success/90"
+                  >
+                    <CircleCheck className="w-4 h-4 mr-2" strokeWidth={2} />
+                    Verify Permit
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" className="w-full sm:w-auto">
+                        <Ban className="w-4 h-4 mr-2" strokeWidth={2} />
+                        Reject
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Reject Permit?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to reject the permit for "{selectedBH.name}"? The owner will be notified and will need to resubmit with valid documentation.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => {
+                            handleRejectPermit(selectedBH.id)
+                            setIsDetailOpen(false)
+                          }}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Reject
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
               )}
               <Button
                 variant="outline"
